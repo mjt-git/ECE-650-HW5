@@ -65,10 +65,6 @@ char * insmodCmd(int pid) {
   return res;
 }
 
-void test() {
-
-}
-
 int main() {
   // print own process ID
   pid = getpid();

